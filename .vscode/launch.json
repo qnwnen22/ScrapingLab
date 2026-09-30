@@ -2,6 +2,18 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "ScrapingLab: 아마존 옵션별 가격 수집",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build ScrapingLab",
+      "program": "${workspaceFolder}/ScrapingLab/bin/Debug/net10.0/ScrapingLab.dll",
+      "args": ["https://www.amazon.com/dp/B0FC2C34GY?th=1&psc=1", "--variant-prices"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "stopAtEntry": false,
+      "justMyCode": true
+    },
+    {
       "name": "ScrapingLab: 아마존 상품 B0FC2C34GY",
       "type": "coreclr",
       "request": "launch",

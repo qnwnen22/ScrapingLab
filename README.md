@@ -1,7 +1,7 @@
 # ScrapingLab
 
 AI가 작성한 C# 스크래핑 코드를 실행하고 디버깅하기 위한 .NET 10 콘솔 프로젝트입니다.
-Amazon US 상품 페이지의 HTML을 요청하고, AngleSharp로 상품 데이터를 추출하여 JSON으로 저장합니다.
+Amazon US 상품 페이지의 HTML을 요청하고, AngleSharp로 상품 데이터를 추출하여 직접 구현한 `Product` 구조의 JSON으로 저장합니다.
 
 프로젝트 위치: `C:\Users\User\source\repos\ScrapingLab`
 
@@ -27,11 +27,46 @@ dotnet run --project ScrapingLab -- "https://www.amazon.com/dp/B0FC2C34GY?th=1&p
 | --- | --- |
 | `page.html` | 받은 원본 HTML |
 | `capture.json` | 실제 요청/최종 URL, HTTP 상태, 수집 시각, 소요 시간, 입력 방식 |
-| `product.json` | 상품 데이터, 필드별 추출 근거, 누락·모호성 경고 |
+| `product.json` | `Product` 클래스와 동일한 속성 이름·중첩 구조의 JSON |
+| `amazon-details.json` | Amazon 원문 필드, 추출 근거, 부모/선택 ASIN과 배송 정보 |
+| `option-mapping.json` | 사용자 옵션 코드 조합과 실제 자식 ASIN 연결 |
+| `variant-prices.json` | 옵션별 가격 확인 결과와 실패·누락 기록 |
 | `metrics.json` | HTTP 요청·HTML 파싱·전체 실행 소요 시간 (프로세스 시작과 빌드 시간 제외) |
 | `failure.json` | HTTP 오류 또는 상품 파싱 실패가 발생한 경우의 진단 |
 
 결과 폴더는 Git에서 제외합니다. `--output`으로 결과 상위 폴더를 바꿀 수 있고 Ctrl+C로 작업을 중단할 수 있습니다.
+
+## Product 구조 매핑
+
+`Program.cs`에 정의한 `Product`, `Price`, `Option`, `Combination`, `OptionValue`, `Independency` 클래스를 사용합니다.
+`product.json`은 Newtonsoft.Json 기본 속성 이름을 사용하여 `Code`, `Title`, `Option.Combinations` 등 클래스 이름과 동일하게 저장합니다.
+
+| 속성 | 매핑 |
+| --- | --- |
+| `Code` | 실제 선택 ASIN |
+| `Title`, `Brand`, `ItemUrl` | 전체 상품명, 브랜드, 선택 상품 URL |
+| `ItemImages` | 선택 상품의 갤러리 이미지 URL |
+| `Description` | About this item의 특징 목록과 실제 설명 텍스트 |
+| `DetailHtml` | 제품 설명/A+ 모듈의 HTML; 상세 이미지 lazy URL을 src에 반영 |
+| `Price` | 선택 상품의 관측 가격·통화; 숫자 확인 실패 시 null |
+| `Option.Combinations` | 옵션 종류와 옵션 값 목록 |
+| `Option.Independencies` | 페이지의 명시적 자식 ASIN 맵에 있는 실제 조합과 각 가격 |
+
+옵션은 화면 순서인 Color → Size로 저장합니다. 값 코드는 원본 인덱스를 사용한 `color_name:2`, `size_name:3` 형태이며, 조합 코드는 `color_name:2|size_name:3`, 조합명은 `Light Blue|Large` 형태입니다.
+`Independency.Codes`의 각 값은 같은 순서의 `Combination.OptionValues.Code`를 참조합니다. 단순히 색상과 사이즈를 곱해서 존재하지 않는 조합을 생성하지 않습니다.
+
+`DetailHtml`은 해당 상품의 설명 모듈을 보존하고 비교 상품·브랜드 광고·중복 noscript·script/style을 제거한 HTML입니다. 원본 전체 응답은 `page.html`에 있습니다.
+
+## 옵션 조합별 가격 수집
+
+```powershell
+dotnet run --project ScrapingLab -- "https://www.amazon.com/dp/B0FC2C34GY?th=1&psc=1" --variant-prices
+```
+
+`--variant-prices`는 명시적으로 연결된 각 자식 ASIN을 1초 간격으로 순서대로 요청합니다. 선택 상품의 가격을 모든 조합에 복사하지 않고, 요청 ASIN과 응답의 선택 ASIN이 일치하는 경우에만 각 `Independency.Price`를 채웁니다.
+각 응답의 HTML과 가격 근거는 `variants/<ASIN>/page.html`, `price.json`에 저장합니다. 차단·요청 제한으로 수집이 중단되거나 가격을 확인할 수 없는 조합은 `Price = null`로 남습니다.
+이 옵션을 생략하면 현재 HTML에서 확인한 선택 조합 가격만 채웁니다. 저장된 HTML 재파싱은 추가 네트워크 요청 없이 같은 구조를 검토하는 용도로 사용합니다.
+옵션 가격을 확인할 때마다 Product와 진행 보고서를 저장합니다. Ctrl+C로 취소해도 이미 확인한 가격과 나머지 null 값을 포함한 부분 결과가 남습니다.
 
 ## 저장된 HTML 재파싱
 
@@ -52,11 +87,11 @@ dotnet run --project ScrapingLab -- --url "https://www.amazon.com/dp/B0FC2C34GY"
 - 선택 상품의 배송비 안내 팝업에 표시된 상품가·배송비·예상 수입 비용·합계
 - HTML에 있는 판매자, 발송 주체, 배송 목적지와 배송 안내
 
-`evidence`는 주요 필드의 CSS 선택자 또는 내장 데이터 키와 원문을 저장합니다. 추출되지 않은 값은 `null` 또는 빈 목록으로 남기고, 확인할 내용은 `warnings`에 기록합니다.
+`amazon-details.json`의 `evidence`는 주요 필드의 CSS 선택자 또는 내장 데이터 키와 원문을 저장합니다. 추출되지 않은 값은 `null` 또는 빈 목록으로 남기고, 확인할 내용은 `warnings`에 기록합니다.
 
-가격은 상품의 주요 구매 영역에서 읽습니다. Amazon US URL이라도 배송 지역에 따라 KRW 같은 통화가 표시될 수 있어 페이지에 실제 표시된 통화를 저장합니다. `offerCharges`는 선택 상품의 배송비 팝업에서 표시된 금액을 그대로 읽습니다. 표시된 합계와 개별 금액의 반올림 합산값은 다를 수 있으며, 결제 총액은 별도로 계산하지 않습니다.
+가격은 상품의 주요 구매 영역에서 읽습니다. Amazon US URL이라도 배송 지역에 따라 KRW 같은 통화가 표시될 수 있어 페이지에 실제 표시된 통화를 저장합니다. `amazon-details.json`의 `offerCharges`는 선택 상품의 배송비 팝업에서 표시된 금액을 그대로 읽습니다. 표시된 합계와 개별 금액의 반올림 합산값은 다를 수 있으며, 결제 총액은 별도로 계산하지 않습니다.
 
-옵션 목록은 현재 응답에 노출된 옵션입니다. 각 옵션 페이지를 요청하여 모든 조합의 가격과 재고를 확인하는 단계는 포함하지 않습니다. 가격, 평가 수, 배송 정보는 수집 시점과 지역에 따라 바뀔 수 있습니다.
+옵션 조합은 현재 응답의 명시적 자식 ASIN 맵에 있는 범위입니다. 가격, 평가 수, 배송 정보는 수집 시점과 지역에 따라 바뀔 수 있으며, `Product` 모델에 없는 재고·평가 정보는 Amazon 진단 파일에서 확인합니다.
 
 CAPTCHA나 로봇 확인 페이지, 상품명 없는 응답은 실패로 처리하고 원본을 보존합니다. 브라우저에서 JavaScript가 실행된 뒤 생성되는 데이터는 현재 HTTP 방식으로 확인되지 않을 수 있습니다.
 
@@ -69,6 +104,7 @@ CAPTCHA나 로봇 확인 페이지, 상품명 없는 응답은 실패로 처리�
 3. `Scraping/AmazonProductParser.cs`의 `Parse` 또는 개별 추출 메서드에 중단점을 걸고 F5를 누릅니다.
 4. HTML 재파싱은 디버그 프로필의 명령줄 인수에 `--url URL --html 파일경로`를 입력하여 실행합니다.
 5. `Local sample` 프로필은 기본 실행 구조를 확인하는 로컬 샘플입니다.
+6. `Amazon B0FC2C34GY all variant prices` 프로필은 조합별 가격까지 수집합니다. `AmazonProductMapper.Map`과 `AmazonVariantPriceCollector.CollectAsync`에 중단점을 걸면 모델 매핑과 가격 대입을 확인할 수 있습니다.
 
 ### VS Code
 
@@ -76,6 +112,7 @@ CAPTCHA나 로봇 확인 페이지, 상품명 없는 응답은 실패로 처리�
 2. 실행 및 디버그에서 `ScrapingLab: 아마존 상품 B0FC2C34GY`를 선택합니다.
 3. 중단점을 걸고 F5를 누릅니다.
 4. 반복 검토는 `ScrapingLab: 저장된 아마존 HTML 재파싱`을 선택하여 저장된 `page.html` 경로를 입력합니다.
+5. `ScrapingLab: 아마존 옵션별 가격 수집`은 실제 자식 상품 요청을 수행합니다.
 
 HTTP 오류나 파일 오류의 최초 발생 지점을 보고 싶다면 디버거의 예외 설정에서 해당 예외가 발생할 때 중단하도록 설정합니다.
 
@@ -87,6 +124,8 @@ HTTP 오류나 파일 오류의 최초 발생 지점을 보고 싶다면 디버�
 | `ScrapingLab/CommandLineOptions.cs` | 실행 인자 처리 |
 | `ScrapingLab/Scraping/Scraper.cs` | HttpClient로 HTML 요청 |
 | `ScrapingLab/Scraping/AmazonProductParser.cs` | 상품 HTML 파싱과 필드별 근거 |
-| `ScrapingLab/Models/AmazonProduct.cs` | 추출 결과 모델 |
+| `ScrapingLab/Scraping/AmazonProductMapper.cs` | 사용자 Product 구조와 실제 옵션 조합 매핑 |
+| `ScrapingLab/Scraping/AmazonVariantPriceCollector.cs` | 자식 ASIN별 가격 확인 |
+| `ScrapingLab/Models/AmazonProduct.cs` | Amazon 원문 필드·근거 모델 |
 | `ScrapingLab/Samples/sample.html` | 네트워크 없이 실행할 수 있는 샘플 |
 | `.vscode/launch.json` | VS Code 디버깅 설정 |

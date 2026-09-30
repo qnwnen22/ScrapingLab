@@ -6,6 +6,10 @@
     "Amazon B0FC2C34GY": {
       "commandName": "Project",
       "commandLineArgs": "https://www.amazon.com/dp/B0FC2C34GY?th=1&psc=1"
+    },
+    "Amazon B0FC2C34GY all variant prices": {
+      "commandName": "Project",
+      "commandLineArgs": "https://www.amazon.com/dp/B0FC2C34GY?th=1&psc=1 --variant-prices"
     }
   }
 }
