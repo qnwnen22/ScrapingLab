@@ -2,6 +2,30 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "ScrapingLab: 아마존 상품 B0FC2C34GY",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build ScrapingLab",
+      "program": "${workspaceFolder}/ScrapingLab/bin/Debug/net10.0/ScrapingLab.dll",
+      "args": ["https://www.amazon.com/dp/B0FC2C34GY?th=1&psc=1"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "stopAtEntry": false,
+      "justMyCode": true
+    },
+    {
+      "name": "ScrapingLab: 저장된 아마존 HTML 재파싱",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build ScrapingLab",
+      "program": "${workspaceFolder}/ScrapingLab/bin/Debug/net10.0/ScrapingLab.dll",
+      "args": ["--url", "https://www.amazon.com/dp/B0FC2C34GY?th=1&psc=1", "--html", "${input:savedHtmlPath}"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "stopAtEntry": false,
+      "justMyCode": true
+    },
+    {
       "name": "ScrapingLab: 로컬 샘플",
       "type": "coreclr",
       "request": "launch",
@@ -31,7 +55,12 @@
       "id": "targetUrl",
       "type": "promptString",
       "description": "수집할 페이지의 전체 URL",
-      "default": "https://example.com"
+      "default": "https://www.amazon.com/dp/B0FC2C34GY?th=1&psc=1"
+    },
+    {
+      "id": "savedHtmlPath",
+      "type": "promptString",
+      "description": "저장된 page.html의 전체 경로 또는 작업 폴더 기준 경로"
     }
   ]
 }

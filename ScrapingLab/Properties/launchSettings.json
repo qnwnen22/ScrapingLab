@@ -2,6 +2,10 @@
   "profiles": {
     "Local sample": {
       "commandName": "Project"
+    },
+    "Amazon B0FC2C34GY": {
+      "commandName": "Project",
+      "commandLineArgs": "https://www.amazon.com/dp/B0FC2C34GY?th=1&psc=1"
     }
   }
 }
