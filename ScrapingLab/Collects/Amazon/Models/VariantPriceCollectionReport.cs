@@ -6,6 +6,8 @@ public sealed class VariantPriceCollectionReport
     public int MappedCombinationCount { get; set; }
     public int CombinationsWithVerifiedPrice { get; set; }
     public int AdditionalRequestCount { get; set; }
+    public int BatchSize { get; set; }
+    public List<VariantBulkRequestObservation> BulkRequests { get; set; } = [];
     public bool StoppedOnChallengeOrRateLimit { get; set; }
     public bool WasCancelled { get; set; }
     public List<VariantPriceObservation> Observations { get; set; } = [];

@@ -164,7 +164,7 @@ public sealed class AmazonProductMapper
 
         var missingPrices = result.VariantTargets.Count(x => x.Independency.Price is null);
         if (missingPrices > 0)
-            result.Warnings.Add($"The initial HTML has no price for {missingPrices} mapped combinations; their prices require separate child-page observations.");
+            result.Warnings.Add($"The initial HTML has no price for {missingPrices} mapped combinations; their prices require ASIN-keyed bulk slot observations.");
     }
 
     private static void MapObservedOptions(AmazonProduct details, AmazonProductMappingResult result)
@@ -286,45 +286,8 @@ public sealed class AmazonProductMapper
         return container.ChildElementCount == 0 ? null : container.OuterHtml;
     }
 
-    /// <summary>Reads a strict JSON property fragment from a surrounding JavaScript object.</summary>
-    private static JsonElement? ReadJsonProperty(string script, string property)
-    {
-        var pattern = "\"" + Regex.Escape(property) + "\"\\s*:\\s*";
-        foreach (Match match in Regex.Matches(script, pattern))
-        {
-            var start = match.Index + match.Length;
-            if (start >= script.Length || script[start] is not ('{' or '[')) continue;
-            var expectedClosings = new Stack<char>();
-            char? quote = null;
-            var escaped = false;
-            for (var index = start; index < script.Length; index++)
-            {
-                var character = script[index];
-                if (quote is not null)
-                {
-                    if (escaped) escaped = false;
-                    else if (character == '\\') escaped = true;
-                    else if (character == quote) quote = null;
-                    continue;
-                }
-                if (character is '\"' or '\'') { quote = character; continue; }
-                if (character == '{') expectedClosings.Push('}');
-                else if (character == '[') expectedClosings.Push(']');
-                else if (character is '}' or ']')
-                {
-                    if (expectedClosings.Count == 0 || expectedClosings.Pop() != character) break;
-                    if (expectedClosings.Count != 0) continue;
-                    try
-                    {
-                        using var value = JsonDocument.Parse(script[start..(index + 1)]);
-                        return value.RootElement.Clone();
-                    }
-                    catch (JsonException) { break; }
-                }
-            }
-        }
-        return null;
-    }
+    private static JsonElement? ReadJsonProperty(string script, string property) =>
+        AmazonEmbeddedJson.ReadProperty(script, property);
 
     private static string? JsonText(JsonElement? value, string key) => value is { ValueKind: JsonValueKind.Object } json
         && json.TryGetProperty(key, out var property) && property.ValueKind == JsonValueKind.String ? Clean(property.GetString()) : null;

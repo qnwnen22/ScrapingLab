@@ -31,6 +31,8 @@ ScrapingLab/
       AmazonProductParser.cs         Amazon 원문 추출
       AmazonProductMapper.cs         Product 모델 변환
       AmazonVariantPriceCollector.cs 옵션별 가격 확인
+      AmazonVariantBulkRequestBuilder.cs 벌크 요청 생성
+      AmazonVariantBulkResponseParser.cs ASIN별 AJAX 응답 파싱
       AmazonUrl.cs                   URL 및 ASIN 처리
       Models/                       Amazon 전용 원문·매핑·응답 모델
 ```
@@ -54,8 +56,27 @@ Product selectedOnly = new AmazonCollect(collectVariantPrices: false).GetProduct
 ```
 
 계약은 `Product GetProduct(string url, string? html = null)`입니다.
-Amazon 기본 수집은 원문에서 확인한 실제 자식 ASIN 조합마다 순서대로 요청해 `Option.Independencies`의 가격을 채웁니다. 각 요청 사이에는 1초 간격이 있습니다.
-요청 ASIN과 응답의 선택 ASIN이 일치할 때만 가격을 대입하며, 확인하지 못한 조합의 가격은 `null`로 남습니다. 차단 또는 요청 제한이 발생하면 추가 옵션 요청을 중단합니다.
+Amazon 기본 수집은 원문에서 확인한 자식 ASIN들을 `/gp/product/ajax/twisterDimensionSlotsDefault`에 벌크로 전달해 `Option.Independencies`의 가격을 채웁니다.
+현재 페이지의 `twister-slots-dimsum.getBatchSize()`와 같은 최대 8개 묶음을 사용합니다. 선택 가격이 이미 확인된 50개 조합 상품은 추가 요청이 49회에서 7회로 줄어듭니다. 요청은 순서대로 수행하며 묶음 사이에 200ms 간격을 둡니다.
+
+요청의 `parentAsin`, `ptd`, `pgid`, `landingAsin`, `deviceType`을 페이지에서 읽습니다. `asin`에는 선택한 `landingAsin`을 사용하고 데스크톱/모바일 컨텍스트에 맞는 `twisterFlavor`를 지정합니다. 메인 페이지와 동일한 HttpClient·쿠키·언어·통화를 사용하고 AJAX 헤더와 Referer를 요청별로 추가합니다.
+코드에 `ㅡ` 구분자가 포함된 경우 마지막 ASIN을 읽으며, ASIN 형식을 검증하고 중복을 제거합니다. 값마다 URL 인코딩을 적용합니다.
+
+응답은 `&&&`로 구분된 JSON 조각으로 읽고 각 조각의 `ASIN`과 실제 조합을 연결합니다. 요청하지 않은 ASIN과 서로 모순되는 중복 슬롯은 적용하지 않습니다.
+각 슬롯의 구매 가격 HTML에서 금액과 통화를 읽습니다. 정밀 JSON 금액은 `RawPriceAmount`에 보관하고 `Product`에는 페이지에 표시된 금액을 사용합니다. 숫자와 통화를 확인하지 못하거나 품절인 슬롯은 `Price = null`로 남습니다. 기본 상품의 알려진 통화와 다른 슬롯 가격도 적용하지 않습니다.
+요청 실패·차단·요청 제한 시 후속 벌크 요청을 중단합니다. 개별 상품 페이지를 추가 요청하는 자동 대체 경로는 없습니다.
+
+```csharp
+var amazon = new AmazonCollect();
+Product product = amazon.GetProduct(url);
+var report = amazon.LastVariantPriceReport;
+// report.AdditionalRequestCount: 실제 벌크 HTTP 요청 횟수
+// report.BulkRequests: 요청 URL, ASIN 목록, HTTP 상태, 소요 시간
+// report.Observations: ASIN별 표시 가격, 정밀 금액, 재고 여부, 추출 근거
+// report.Warnings: 누락·파싱 실패 등 진단
+```
+
+이 엔드포인트는 사이트 내부 구현입니다. 현재 수집한 응답에서는 페이지와 같은 데스크톱 파라미터로 8개 ASIN 요청이 HTTP 200을 반환했고, 49개 요청은 HTTP 404를 반환했습니다. 묶음 크기나 페이지 컨텍스트가 바뀌면 요청 빌더를 조정해야 합니다.
 
 ## 저장된 HTML 파싱
 
@@ -79,6 +100,8 @@ VS Code에서는 `ScrapingLab: 아마존 상품 수집` 또는 `ScrapingLab: URL
 - `AmazonPageClient.FetchPageAsync`: HTTP 요청과 원문 응답
 - `AmazonProductParser.Parse`: 상품 데이터 추출
 - `AmazonProductMapper.Map`: 공통 `Product`와 실제 옵션 조합 매핑
-- `AmazonVariantPriceCollector.CollectAsync`: 자식 ASIN별 가격 확인 및 대입
+- `AmazonVariantBulkRequestBuilder.CreateBatches`: HTML 메타데이터와 8개 ASIN 묶음
+- `AmazonVariantBulkResponseParser.Parse`: 벌크 응답의 ASIN별 가격 추출
+- `AmazonVariantPriceCollector.CollectAsync`: 실제 조합에 가격 대입 및 요청 보고서
 
 가격의 통화는 실제 응답에 표시된 값을 사용합니다. 선택 상품 갤러리는 `ItemImages`, 실제 설명 문장은 `Description`, 상품 설명/A+ 모듈 HTML은 `DetailHtml`에 매핑합니다.

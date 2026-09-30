@@ -156,7 +156,7 @@ public sealed class AmazonProductParser
         return null;
     }
 
-    private static AmazonPrice ParsePriceText(string raw, AmazonProduct product, string field)
+    internal static AmazonPrice ParsePriceText(string raw, AmazonProduct product, string field)
     {
         var price = new AmazonPrice { DisplayText = raw };
         // ISO code wins. Symbols such as $ or ¥ alone are intentionally ambiguous.

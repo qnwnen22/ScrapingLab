@@ -3,75 +3,98 @@ using ScrapingLab.Models;
 
 namespace ScrapingLab.Collects.Amazon;
 
-/// <summary>각 실제 자식 ASIN의 응답에서 확인한 가격을 해당 조합에 대입합니다.</summary>
+/// <summary>자식 페이지 대신 ASIN 벌크 AJAX 응답으로 각 옵션 조합 가격을 채웁니다.</summary>
 public sealed class AmazonVariantPriceCollector(AmazonPageClient client)
 {
     public async Task<VariantPriceCollectionReport> CollectAsync(
-        AmazonProductMappingResult mapping, CancellationToken cancellationToken = default)
+        AmazonProductMappingResult mapping, string html, Uri pageUrl, CancellationToken cancellationToken = default)
     {
-        var report = new VariantPriceCollectionReport { AdditionalRequestsEnabled = true };
+        var report = new VariantPriceCollectionReport
+        {
+            AdditionalRequestsEnabled = true,
+            BatchSize = AmazonVariantBulkRequestBuilder.BatchSize
+        };
         var pending = mapping.VariantTargets.Where(x => !x.IsSelected || !HasVerifiedPrice(x.Independency.Price))
-            .GroupBy(x => x.Asin, StringComparer.Ordinal).ToList();
-        var parser = new AmazonProductParser();
+            .GroupBy(x => x.Asin, StringComparer.Ordinal).ToDictionary(x => x.Key, x => x.ToList(), StringComparer.Ordinal);
         try
         {
-            foreach (var group in pending)
+            cancellationToken.ThrowIfCancellationRequested();
+            if (pending.Count == 0) return report;
+            var requests = new AmazonVariantBulkRequestBuilder().CreateBatches(html, pending.Keys, pageUrl);
+            if (requests.Count == 0)
             {
-                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
-                var observation = new VariantPriceObservation { Asin = group.Key };
-                report.Observations.Add(observation);
-                var url = new Uri($"https://www.amazon.com/dp/{group.Key}?th=1&psc=1");
-
+                report.Warnings.Add("Bulk request metadata was missing. Unverified option prices remain null.");
+                return report;
+            }
+            foreach (var request in requests)
+            {
+                if (report.BulkRequests.Count > 0)
+                    await Task.Delay(TimeSpan.FromMilliseconds(200), cancellationToken).ConfigureAwait(false);
+                var bulk = new VariantBulkRequestObservation { Url = request.Url.AbsoluteUri, Asins = request.Asins.ToList() };
+                report.BulkRequests.Add(bulk);
                 try
                 {
-                    var page = await client.FetchPageAsync(url, cancellationToken).ConfigureAwait(false);
-                    observation.FetchedAtUtc = page.FetchedAtUtc;
-                    observation.HttpStatusCode = page.HttpStatusCode;
-                    observation.FinalUrl = page.FinalUrl.AbsoluteUri;
+                    var page = await client.FetchBulkAsync(request, cancellationToken).ConfigureAwait(false);
+                    bulk.FetchedAtUtc = page.FetchedAtUtc;
+                    bulk.HttpStatusCode = page.HttpStatusCode;
+                    bulk.HttpElapsedMilliseconds = page.HttpElapsedMilliseconds;
                     if (page.HttpStatusCode is < 200 or >= 300)
                     {
-                        observation.Error = $"HTTP {page.HttpStatusCode}";
-                        if (page.HttpStatusCode is 429 or 503)
+                        report.StoppedOnChallengeOrRateLimit = page.HttpStatusCode is 429 or 503;
+                        throw new HttpRequestException($"Bulk request returned HTTP {page.HttpStatusCode}.");
+                    }
+                    var parsed = new AmazonVariantBulkResponseParser().Parse(page.Html);
+                    report.Warnings.AddRange(parsed.Warnings);
+                    var received = parsed.Observations.GroupBy(x => x.Asin, StringComparer.Ordinal)
+                        .ToDictionary(x => x.Key, x => x.ToList(), StringComparer.Ordinal);
+                    bulk.ResponseAsinCount = received.Keys.Count(request.Asins.Contains);
+                    foreach (var unexpected in received.Keys.Where(x => !request.Asins.Contains(x)))
+                        report.Warnings.Add($"Ignored unrequested ASIN {unexpected} in the bulk response.");
+                    foreach (var asin in request.Asins)
+                    {
+                        VariantPriceObservation observation;
+                        if (!received.TryGetValue(asin, out var records))
+                            observation = new VariantPriceObservation { Asin = asin, Error = "No slot was returned for the requested ASIN." };
+                        else if (records.Select(x => (x.Price?.Amount, x.Price?.Currency, x.IsAvailable, x.Error)).Distinct().Count() > 1)
+                            observation = new VariantPriceObservation { Asin = asin, Error = "Conflicting slots were returned for the same ASIN." };
+                        else observation = records[0];
+                        observation.FetchedAtUtc = page.FetchedAtUtc;
+                        observation.HttpStatusCode = page.HttpStatusCode;
+                        observation.FinalUrl = page.FinalUrl.AbsoluteUri;
+                        report.Observations.Add(observation);
+                        if (observation.ResponseAsin != asin || observation.Price is not { } price || !HasVerifiedPrice(price)) continue;
+                        if (mapping.Product.Price?.Currency is { } pageCurrency && price.Currency != pageCurrency)
                         {
-                            report.StoppedOnChallengeOrRateLimit = true;
-                            report.Warnings.Add($"Variant requests stopped after {observation.Error} at {group.Key}. Unverified prices remain null.");
+                            observation.Error = $"Bulk currency {price.Currency} differs from page currency {pageCurrency}.";
+                            observation.Price = null;
+                            continue;
+                        }
+                        foreach (var target in pending[asin])
+                        {
+                            target.Independency.Price = CopyPrice(price);
+                            if (target.IsSelected) mapping.Product.Price = CopyPrice(price);
                         }
                     }
-                    else
+                    if (bulk.ResponseAsinCount == 0)
                     {
-                        var details = parser.Parse(page.Html, url, page.FinalUrl, page.FetchedAtUtc, page.HttpStatusCode);
-                        observation.SelectedAsin = details.SelectedAsin;
-                        if (details.SelectedAsin != group.Key)
-                            observation.Error = $"Requested child {group.Key}, but response selected {details.SelectedAsin ?? "unknown"}.";
-                        else if (details.CurrentPrice?.Amount is not { } amount || string.IsNullOrWhiteSpace(details.CurrentPrice.Currency))
-                            observation.Error = "The child page did not expose an unambiguous numeric price and currency.";
-                        else
-                        {
-                            observation.Price = new Price { Amount = (double)amount, Currency = details.CurrentPrice.Currency };
-                            observation.PriceDisplayText = details.CurrentPrice.DisplayText;
-                            if (details.Evidence.TryGetValue(nameof(details.CurrentPrice), out var evidence)) observation.Evidence = evidence;
-                            foreach (var target in group)
-                            {
-                                target.Independency.Price = CopyPrice(observation.Price);
-                                if (target.IsSelected) mapping.Product.Price = CopyPrice(observation.Price);
-                            }
-                        }
+                        bulk.Error = "The bulk response did not contain any requested ASIN slots.";
+                        report.Warnings.Add(bulk.Error);
+                        break;
                     }
                 }
                 catch (AmazonProductParsingException exception)
                 {
-                    observation.Error = exception.Message;
-                    if (exception.IsChallenge)
-                    {
-                        report.StoppedOnChallengeOrRateLimit = true;
-                        report.Warnings.Add($"Variant requests stopped after a challenge at {group.Key}. Unverified prices remain null.");
-                    }
+                    bulk.Error = exception.Message;
+                    report.StoppedOnChallengeOrRateLimit = exception.IsChallenge;
                 }
-                catch (HttpRequestException exception) { observation.Error = exception.Message; }
+                catch (HttpRequestException exception) { bulk.Error = exception.Message; }
                 catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-                { observation.Error = "HTTP request timed out."; }
-
-                if (report.StoppedOnChallengeOrRateLimit) break;
+                { bulk.Error = "Bulk HTTP request timed out."; }
+                if (bulk.Error is not null)
+                {
+                    report.Warnings.Add(bulk.Error + " Remaining bulk requests stopped.");
+                    break;
+                }
             }
             return report;
         }
@@ -79,7 +102,7 @@ public sealed class AmazonVariantPriceCollector(AmazonPageClient client)
         {
             report.MappedCombinationCount = mapping.VariantTargets.Count;
             report.CombinationsWithVerifiedPrice = mapping.VariantTargets.Count(x => HasVerifiedPrice(x.Independency.Price));
-            report.AdditionalRequestCount = report.Observations.Count;
+            report.AdditionalRequestCount = report.BulkRequests.Count;
             report.WasCancelled = cancellationToken.IsCancellationRequested;
             if (report.CombinationsWithVerifiedPrice < report.MappedCombinationCount)
                 report.Warnings.Add($"Verified prices: {report.CombinationsWithVerifiedPrice}/{report.MappedCombinationCount}. Unverified prices remain null or have an unknown currency.");
@@ -87,6 +110,5 @@ public sealed class AmazonVariantPriceCollector(AmazonPageClient client)
     }
 
     private static bool HasVerifiedPrice(Price? price) => price is not null && !string.IsNullOrWhiteSpace(price.Currency);
-
     private static Price CopyPrice(Price price) => new() { Amount = price.Amount, Currency = price.Currency };
 }

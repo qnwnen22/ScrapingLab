@@ -7,9 +7,14 @@ namespace ScrapingLab.Collects.Amazon;
 /// <summary>Amazon 상품 요청, 파싱, 공통 Product 매핑과 옵션별 가격 확인을 담당합니다.</summary>
 public sealed class AmazonCollect(bool collectVariantPrices = true) : ICollect
 {
+    public VariantPriceCollectionReport? LastVariantPriceReport { get; private set; }
+
     /// <summary>URL로 수집합니다. HTML을 전달하면 네트워크 요청 없이 해당 응답만 파싱합니다.</summary>
-    public Product GetProduct(string url, string? html = null) =>
-        GetProductCoreAsync(url, html).GetAwaiter().GetResult();
+    public Product GetProduct(string url, string? html = null)
+    {
+        LastVariantPriceReport = null;
+        return GetProductCoreAsync(url, html).GetAwaiter().GetResult();
+    }
 
     private async Task<Product> GetProductCoreAsync(string url, string? html)
     {
@@ -33,7 +38,8 @@ public sealed class AmazonCollect(bool collectVariantPrices = true) : ICollect
             page.FetchedAtUtc, page.HttpStatusCode);
         var mapping = new AmazonProductMapper().Map(details, page.Html);
         if (html is null && collectVariantPrices)
-            await new AmazonVariantPriceCollector(client).CollectAsync(mapping).ConfigureAwait(false);
+            LastVariantPriceReport = await new AmazonVariantPriceCollector(client)
+                .CollectAsync(mapping, page.Html, page.FinalUrl).ConfigureAwait(false);
 
         return mapping.Product;
     }
