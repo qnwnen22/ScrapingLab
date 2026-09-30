@@ -1,0 +1,37 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "ScrapingLab: 로컬 샘플",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build ScrapingLab",
+      "program": "${workspaceFolder}/ScrapingLab/bin/Debug/net10.0/ScrapingLab.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "stopAtEntry": false,
+      "justMyCode": true
+    },
+    {
+      "name": "ScrapingLab: URL 수집",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build ScrapingLab",
+      "program": "${workspaceFolder}/ScrapingLab/bin/Debug/net10.0/ScrapingLab.dll",
+      "args": ["${input:targetUrl}"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "stopAtEntry": false,
+      "justMyCode": true
+    }
+  ],
+  "inputs": [
+    {
+      "id": "targetUrl",
+      "type": "promptString",
+      "description": "수집할 페이지의 전체 URL",
+      "default": "https://example.com"
+    }
+  ]
+}
