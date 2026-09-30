@@ -1,4 +1,4 @@
-namespace ScrapingLab.Models;
+namespace ScrapingLab.Collects.Amazon.Models;
 
 public sealed record PageFetchResult(
     Uri RequestedUrl,

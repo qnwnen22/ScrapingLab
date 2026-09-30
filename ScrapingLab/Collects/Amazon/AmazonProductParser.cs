@@ -3,9 +3,9 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using AngleSharp.Dom;
 using AngleSharp.Html.Parser;
-using ScrapingLab.Models;
+using ScrapingLab.Collects.Amazon.Models;
 
-namespace ScrapingLab.Scraping;
+namespace ScrapingLab.Collects.Amazon;
 
 /// <summary>Parses a captured page without JavaScript execution or additional network requests.</summary>
 public sealed class AmazonProductParser

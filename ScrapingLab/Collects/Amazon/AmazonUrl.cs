@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace ScrapingLab.Scraping;
+namespace ScrapingLab.Collects.Amazon;
 
 public static partial class AmazonUrl
 {

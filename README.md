@@ -1,131 +1,84 @@
 # ScrapingLab
 
-AI가 작성한 C# 스크래핑 코드를 실행하고 디버깅하기 위한 .NET 10 콘솔 프로젝트입니다.
-Amazon US 상품 페이지의 HTML을 요청하고, AngleSharp로 상품 데이터를 추출하여 직접 구현한 `Product` 구조의 JSON으로 저장합니다.
-
-프로젝트 위치: `C:\Users\User\source\repos\ScrapingLab`
+.NET 10 C# 상품 수집 실험 프로젝트입니다. URL을 입력하면 사이트 수집기가 데이터를 공통 `Product` 모델로 변환하고 JSON을 콘솔에 출력합니다.
 
 ## 실행
 
-이 작업 폴더에서 실행합니다. .NET 10 SDK가 필요합니다.
-
-```powershell
-dotnet build ScrapingLab.sln --configuration Debug
-dotnet run --project ScrapingLab
-```
-
-인자 없이 실행하면 로컬 `Samples/sample.html`을 읽습니다.
-실제 페이지를 수집할 때는 URL을 인자로 전달합니다. 아마존 광고 추적 파라미터는 제거하고 선택 ASIN을 유지합니다.
+프로젝트 폴더 `C:\Users\User\source\repos\ScrapingLab`에서 실행합니다.
 
 ```powershell
 dotnet run --project ScrapingLab -- "https://www.amazon.com/dp/B0FC2C34GY?th=1&psc=1"
 ```
 
-실행마다 `artifacts/<ASIN>/<UTC 실행 시각>/`에 결과를 보관합니다. 로컬 샘플이나 일반 URL은 ASIN 대신 `page`를 사용합니다.
+인자 없이 실행하면 콘솔에서 URL 한 줄을 입력받습니다. 현재 Amazon US 상품 URL을 지원합니다.
+표준 출력에는 `Product` JSON만 출력하며 오류 메시지는 표준 오류로 출력합니다.
 
-| 파일 | 내용 |
-| --- | --- |
-| `page.html` | 받은 원본 HTML |
-| `capture.json` | 실제 요청/최종 URL, HTTP 상태, 수집 시각, 소요 시간, 입력 방식 |
-| `product.json` | `Product` 클래스와 동일한 속성 이름·중첩 구조의 JSON |
-| `amazon-details.json` | Amazon 원문 필드, 추출 근거, 부모/선택 ASIN과 배송 정보 |
-| `option-mapping.json` | 사용자 옵션 코드 조합과 실제 자식 ASIN 연결 |
-| `variant-prices.json` | 옵션별 가격 확인 결과와 실패·누락 기록 |
-| `metrics.json` | HTTP 요청·HTML 파싱·전체 실행 소요 시간 (프로세스 시작과 빌드 시간 제외) |
-| `failure.json` | HTTP 오류 또는 상품 파싱 실패가 발생한 경우의 진단 |
+## 코드 구조
 
-결과 폴더는 Git에서 제외합니다. `--output`으로 결과 상위 폴더를 바꿀 수 있고 Ctrl+C로 작업을 중단할 수 있습니다.
-
-## Product 구조 매핑
-
-`Program.cs`에 정의한 `Product`, `Price`, `Option`, `Combination`, `OptionValue`, `Independency` 클래스를 사용합니다.
-`product.json`은 Newtonsoft.Json 기본 속성 이름을 사용하여 `Code`, `Title`, `Option.Combinations` 등 클래스 이름과 동일하게 저장합니다.
-
-| 속성 | 매핑 |
-| --- | --- |
-| `Code` | 실제 선택 ASIN |
-| `Title`, `Brand`, `ItemUrl` | 전체 상품명, 브랜드, 선택 상품 URL |
-| `ItemImages` | 선택 상품의 갤러리 이미지 URL |
-| `Description` | About this item의 특징 목록과 실제 설명 텍스트 |
-| `DetailHtml` | 제품 설명/A+ 모듈의 HTML; 상세 이미지 lazy URL을 src에 반영 |
-| `Price` | 선택 상품의 관측 가격·통화; 숫자 확인 실패 시 null |
-| `Option.Combinations` | 옵션 종류와 옵션 값 목록 |
-| `Option.Independencies` | 페이지의 명시적 자식 ASIN 맵에 있는 실제 조합과 각 가격 |
-
-옵션은 화면 순서인 Color → Size로 저장합니다. 값 코드는 원본 인덱스를 사용한 `color_name:2`, `size_name:3` 형태이며, 조합 코드는 `color_name:2|size_name:3`, 조합명은 `Light Blue|Large` 형태입니다.
-`Independency.Codes`의 각 값은 같은 순서의 `Combination.OptionValues.Code`를 참조합니다. 단순히 색상과 사이즈를 곱해서 존재하지 않는 조합을 생성하지 않습니다.
-
-`DetailHtml`은 해당 상품의 설명 모듈을 보존하고 비교 상품·브랜드 광고·중복 noscript·script/style을 제거한 HTML입니다. 원본 전체 응답은 `page.html`에 있습니다.
-
-## 옵션 조합별 가격 수집
-
-```powershell
-dotnet run --project ScrapingLab -- "https://www.amazon.com/dp/B0FC2C34GY?th=1&psc=1" --variant-prices
+```text
+ScrapingLab/
+  Program.cs                         URL 입력 → 수집기 호출 → JSON 출력
+  Models/                            공통 Product 관련 클래스
+    Product.cs, Price.cs
+    Option.cs, Combination.cs
+    OptionValue.cs, Independency.cs
+  Collects/
+    ICollect.cs                      사이트별 수집 계약
+    CollectFactory.cs                URL에 맞는 수집기 선택
+    Amazon/
+      AmazonCollect.cs               Amazon 수집 진입점
+      AmazonPageClient.cs            HTML 요청
+      AmazonProductParser.cs         Amazon 원문 추출
+      AmazonProductMapper.cs         Product 모델 변환
+      AmazonVariantPriceCollector.cs 옵션별 가격 확인
+      AmazonUrl.cs                   URL 및 ASIN 처리
+      Models/                       Amazon 전용 원문·매핑·응답 모델
 ```
 
-`--variant-prices`는 명시적으로 연결된 각 자식 ASIN을 1초 간격으로 순서대로 요청합니다. 선택 상품의 가격을 모든 조합에 복사하지 않고, 요청 ASIN과 응답의 선택 ASIN이 일치하는 경우에만 각 `Independency.Price`를 채웁니다.
-각 응답의 HTML과 가격 근거는 `variants/<ASIN>/page.html`, `price.json`에 저장합니다. 차단·요청 제한으로 수집이 중단되거나 가격을 확인할 수 없는 조합은 `Price = null`로 남습니다.
-이 옵션을 생략하면 현재 HTML에서 확인한 선택 조합 가격만 채웁니다. 저장된 HTML 재파싱은 추가 네트워크 요청 없이 같은 구조를 검토하는 용도로 사용합니다.
-옵션 가격을 확인할 때마다 Product와 진행 보고서를 저장합니다. Ctrl+C로 취소해도 이미 확인한 가격과 나머지 null 값을 포함한 부분 결과가 남습니다.
+`Models`의 속성 이름과 구조는 사용자가 정의한 `Product` 모델을 그대로 사용합니다.
+새 사이트는 `Collects/<사이트>/`에서 `ICollect`를 구현하고, 해당 사이트 전용 모델을 그 안의 `Models/`에 둡니다. URL 선택 규칙은 `CollectFactory`에 추가합니다.
 
-## 저장된 HTML 재파싱
+## 수집기 직접 사용
 
-받은 HTML을 반복해서 파싱하면 네트워크 요청 없이 중단점으로 코드를 검토할 수 있습니다.
+```csharp
+using ScrapingLab.Collects;
+using ScrapingLab.Collects.Amazon;
+using ScrapingLab.Models;
 
-```powershell
-dotnet run --project ScrapingLab -- --url "https://www.amazon.com/dp/B0FC2C34GY" --html "artifacts/B0FC2C34GY/<실행 시각>/page.html"
+var url = "https://www.amazon.com/dp/B0FC2C34GY?th=1&psc=1";
+ICollect collect = CollectFactory.Create(url);
+Product product = collect.GetProduct(url);
+
+// 현재 페이지의 선택 가격만 수집합니다.
+Product selectedOnly = new AmazonCollect(collectVariantPrices: false).GetProduct(url);
 ```
 
-저장된 HTML 재파싱 결과의 HTTP 상태는 `null`입니다. 파일 수정 시각을 수집 시각으로 기록하며, 실제 HTTP 응답 상태는 원래 실행의 `capture.json`에서 확인합니다.
+계약은 `Product GetProduct(string url, string? html = null)`입니다.
+Amazon 기본 수집은 원문에서 확인한 실제 자식 ASIN 조합마다 순서대로 요청해 `Option.Independencies`의 가격을 채웁니다. 각 요청 사이에는 1초 간격이 있습니다.
+요청 ASIN과 응답의 선택 ASIN이 일치할 때만 가격을 대입하며, 확인하지 못한 조합의 가격은 `null`로 남습니다. 차단 또는 요청 제한이 발생하면 추가 옵션 요청을 중단합니다.
 
-## 추출 항목과 범위
+## 저장된 HTML 파싱
 
-- 요청 ASIN, 선택 ASIN, 부모 ASIN, URL, 브랜드, 기본 상품명과 추가 상품명
-- 표시 가격과 통화, 정가가 있는 경우 정가, 평점과 평가 수
-- 선택 색상·사이즈, 현재 HTML에 노출된 옵션과 연결 ASIN
-- 주요 이미지와 갤러리 URL, 상품 특징, 상세 정보, 설명 텍스트·이미지 URL, 카테고리
-- 선택 상품의 배송비 안내 팝업에 표시된 상품가·배송비·예상 수입 비용·합계
-- HTML에 있는 판매자, 발송 주체, 배송 목적지와 배송 안내
+```csharp
+var html = File.ReadAllText(@"C:\saved\page.html");
+ICollect collect = new AmazonCollect();
+Product product = collect.GetProduct(url, html);
+```
 
-`amazon-details.json`의 `evidence`는 주요 필드의 CSS 선택자 또는 내장 데이터 키와 원문을 저장합니다. 추출되지 않은 값은 `null` 또는 빈 목록으로 남기고, 확인할 내용은 `warnings`에 기록합니다.
-
-가격은 상품의 주요 구매 영역에서 읽습니다. Amazon US URL이라도 배송 지역에 따라 KRW 같은 통화가 표시될 수 있어 페이지에 실제 표시된 통화를 저장합니다. `amazon-details.json`의 `offerCharges`는 선택 상품의 배송비 팝업에서 표시된 금액을 그대로 읽습니다. 표시된 합계와 개별 금액의 반올림 합산값은 다를 수 있으며, 결제 총액은 별도로 계산하지 않습니다.
-
-옵션 조합은 현재 응답의 명시적 자식 ASIN 맵에 있는 범위입니다. 가격, 평가 수, 배송 정보는 수집 시점과 지역에 따라 바뀔 수 있으며, `Product` 모델에 없는 재고·평가 정보는 Amazon 진단 파일에서 확인합니다.
-
-CAPTCHA나 로봇 확인 페이지, 상품명 없는 응답은 실패로 처리하고 원본을 보존합니다. 브라우저에서 JavaScript가 실행된 뒤 생성되는 데이터는 현재 HTTP 방식으로 확인되지 않을 수 있습니다.
+HTML을 전달하면 네트워크 요청 없이 해당 HTML만 파싱합니다. 이 경우 기본 설정과 관계없이 옵션별 추가 요청을 하지 않습니다.
+CLI는 URL 입력만 받으며 결과 파일을 자동 저장하지 않습니다. 저장이 필요하면 `Product`를 직렬화하여 파일에 기록하면 됩니다.
 
 ## 디버깅
 
-### Visual Studio
+Visual Studio에서는 `ScrapingLab.sln`을 열고 `Amazon 상품 수집` 또는 `URL 입력` 프로필로 실행합니다.
+VS Code에서는 `ScrapingLab: 아마존 상품 수집` 또는 `ScrapingLab: URL 입력` 구성을 선택합니다.
 
-1. `ScrapingLab.sln`을 엽니다. .NET 10을 지원하는 Visual Studio가 필요합니다.
-2. 디버그 프로필에서 `Amazon B0FC2C34GY`를 선택합니다.
-3. `Scraping/AmazonProductParser.cs`의 `Parse` 또는 개별 추출 메서드에 중단점을 걸고 F5를 누릅니다.
-4. HTML 재파싱은 디버그 프로필의 명령줄 인수에 `--url URL --html 파일경로`를 입력하여 실행합니다.
-5. `Local sample` 프로필은 기본 실행 구조를 확인하는 로컬 샘플입니다.
-6. `Amazon B0FC2C34GY all variant prices` 프로필은 조합별 가격까지 수집합니다. `AmazonProductMapper.Map`과 `AmazonVariantPriceCollector.CollectAsync`에 중단점을 걸면 모델 매핑과 가격 대입을 확인할 수 있습니다.
+중단점 위치:
 
-### VS Code
+- `AmazonCollect.GetProduct`: 사이트 수집 시작 및 반환 값
+- `AmazonPageClient.FetchPageAsync`: HTTP 요청과 원문 응답
+- `AmazonProductParser.Parse`: 상품 데이터 추출
+- `AmazonProductMapper.Map`: 공통 `Product`와 실제 옵션 조합 매핑
+- `AmazonVariantPriceCollector.CollectAsync`: 자식 ASIN별 가격 확인 및 대입
 
-1. 이 작업 폴더를 열고 Microsoft C# 확장을 설치합니다.
-2. 실행 및 디버그에서 `ScrapingLab: 아마존 상품 B0FC2C34GY`를 선택합니다.
-3. 중단점을 걸고 F5를 누릅니다.
-4. 반복 검토는 `ScrapingLab: 저장된 아마존 HTML 재파싱`을 선택하여 저장된 `page.html` 경로를 입력합니다.
-5. `ScrapingLab: 아마존 옵션별 가격 수집`은 실제 자식 상품 요청을 수행합니다.
-
-HTTP 오류나 파일 오류의 최초 발생 지점을 보고 싶다면 디버거의 예외 설정에서 해당 예외가 발생할 때 중단하도록 설정합니다.
-
-## 코드 위치
-
-| 파일 | 역할 |
-| --- | --- |
-| `ScrapingLab/Program.cs` | 수집/재파싱 실행, 원본·JSON 저장, 오류 출력 |
-| `ScrapingLab/CommandLineOptions.cs` | 실행 인자 처리 |
-| `ScrapingLab/Scraping/Scraper.cs` | HttpClient로 HTML 요청 |
-| `ScrapingLab/Scraping/AmazonProductParser.cs` | 상품 HTML 파싱과 필드별 근거 |
-| `ScrapingLab/Scraping/AmazonProductMapper.cs` | 사용자 Product 구조와 실제 옵션 조합 매핑 |
-| `ScrapingLab/Scraping/AmazonVariantPriceCollector.cs` | 자식 ASIN별 가격 확인 |
-| `ScrapingLab/Models/AmazonProduct.cs` | Amazon 원문 필드·근거 모델 |
-| `ScrapingLab/Samples/sample.html` | 네트워크 없이 실행할 수 있는 샘플 |
-| `.vscode/launch.json` | VS Code 디버깅 설정 |
+가격의 통화는 실제 응답에 표시된 값을 사용합니다. 선택 상품 갤러리는 `ItemImages`, 실제 설명 문장은 `Description`, 상품 설명/A+ 모듈 HTML은 `DetailHtml`에 매핑합니다.

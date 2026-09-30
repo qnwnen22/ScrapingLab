@@ -1,4 +1,4 @@
-namespace ScrapingLab.Models;
+namespace ScrapingLab.Collects.Amazon.Models;
 
 /// <summary>One observed product page, including the delivery and currency context of that response.</summary>
 public sealed class AmazonProduct

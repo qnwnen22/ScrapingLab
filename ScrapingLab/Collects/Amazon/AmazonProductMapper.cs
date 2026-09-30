@@ -4,25 +4,9 @@ using System.Text.RegularExpressions;
 using AngleSharp.Dom;
 using AngleSharp.Html.Parser;
 using ScrapingLab.Models;
+using ScrapingLab.Collects.Amazon.Models;
 
-namespace ScrapingLab.Scraping;
-
-public sealed class AmazonProductMappingResult
-{
-    public Product Product { get; set; } = new();
-    public List<AmazonVariantTarget> VariantTargets { get; set; } = [];
-    public List<string> Warnings { get; set; } = [];
-}
-
-/// <summary>Associates a real child ASIN with the existing user-model combination.</summary>
-public sealed class AmazonVariantTarget
-{
-    public string Asin { get; set; } = "";
-    public string Codes { get; set; } = "";
-    public string Names { get; set; } = "";
-    public bool IsSelected { get; set; }
-    public Independency Independency { get; set; } = new();
-}
+namespace ScrapingLab.Collects.Amazon;
 
 /// <summary>Maps an observed Amazon response into the user's Product classes.</summary>
 public sealed class AmazonProductMapper
